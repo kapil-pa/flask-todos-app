@@ -1,4 +1,4 @@
-name: Deploy Flask Todos App (Amazon Linux)
+name: Deploy Flask Todos App
 
 on:
   push:
@@ -24,7 +24,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run tests
-        run: pytest --verbose
+        run: |
+          pytest --verbose
 
   deploy:
     needs: test
@@ -36,7 +37,7 @@ jobs:
       - name: Set up SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
@@ -53,32 +54,48 @@ jobs:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
         run: |
-          ssh $EC2_USERNAME@$EC2_HOST "mkdir -p ~/todos-deploy"
-          rsync -avz --exclude='.git' --exclude='.github' --exclude='venv' \
-            -e "ssh -o StrictHostKeyChecking=no" ./ $EC2_USERNAME@$EC2_HOST:~/todos-deploy/
+          # Create temporary directory on EC2
+          ssh $EC2_USERNAME@$EC2_HOST "mkdir -p /home/ubuntu/todos-deploy"
+          
+          # Copy files
+          rsync -avz --exclude='.git' \
+            --exclude='.github' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.pytest_cache' \
+            --exclude='venv' \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            ./ $EC2_USERNAME@$EC2_HOST:/home/ubuntu/todos-deploy/
 
-      - name: Deploy application on EC2
+      - name: Deploy application
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
         run: |
           ssh $EC2_USERNAME@$EC2_HOST << 'ENDSSH'
-            cd ~/todos-deploy
+            cd /home/ubuntu/todos-deploy
             chmod +x deploy.sh
-            ./deploy.sh
+            sudo ./deploy.sh
+            
+            # Clean up temporary directory
+            cd /home/ubuntu
+            rm -rf todos-deploy
           ENDSSH
 
       - name: Health check
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          echo "Waiting for Flask app to start..."
+          echo "Waiting for application to start..."
           sleep 10
-          CODE=$(curl -s -o /dev/null -w "%{http_code}" http://$EC2_HOST || echo "000")
-          if [ "$CODE" = "200" ] || [ "$CODE" = "302" ]; then
-            echo "✅ App is running fine (HTTP $CODE)"
+          
+          # Check if application is responding
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://$EC2_HOST || echo "000")
+          
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ]; then
+            echo "Application is healthy! HTTP $HTTP_CODE"
           else
-            echo "❌ App not responding (HTTP $CODE)"
+            echo "Application may not be responding properly. HTTP $HTTP_CODE"
             exit 1
           fi
 

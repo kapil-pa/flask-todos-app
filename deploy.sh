@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-APP_NAME="flask_todos"
+APP_NAME="flask-todos-app"
 APP_DIR="/home/ubuntu/todos-deploy"
 VENV_DIR="$APP_DIR/venv"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
@@ -96,4 +96,3 @@ fi
 
 echo "✅ Deployment successful!"
 echo "Your Flask app is now live at: http://$(curl -s ifconfig.me)"
-
