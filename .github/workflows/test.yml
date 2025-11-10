@@ -1,0 +1,17 @@
+name: Hello World Workflow
+
+on: [push] # Trigger the workflow on push events to any branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # Specify the operating system for the runner
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4 # Action to check out the repository's code
+
+      - name: Run a simple script
+        run: echo "Hello, world! This is a GitHub Actions workflow."
+
+      - name: List files in the repository
+        run: ls -la # Command to list files in the current directory
