@@ -1,40 +1,48 @@
 #!/bin/bash
 set -e
 
-APP_DIR="$HOME/todos-deploy"
 APP_NAME="flask_todos"
-PYTHON_PATH="/usr/bin/python3"
-VENV_PATH="$APP_DIR/venv"
+APP_DIR="/home/ubuntu/todos-deploy"
+VENV_DIR="$APP_DIR/venv"
+SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
+NGINX_CONF="/etc/nginx/conf.d/${APP_NAME}.conf"
+PYTHON_BIN="/usr/bin/python3"
 
-echo "---- Updating system ----"
+echo "-----------------------------"
+echo "🚀 Starting Flask deployment"
+echo "-----------------------------"
+
+# --- 1️⃣ System update & dependencies ---
+echo "📦 Updating system and installing dependencies..."
 sudo yum update -y
+sudo yum install -y python3 python3-pip nginx git
 
-echo "---- Installing dependencies ----"
-sudo yum install -y python3-pip nginx git
-
-echo "---- Setting up virtual environment ----"
-if [ ! -d "$VENV_PATH" ]; then
-  $PYTHON_PATH -m venv $VENV_PATH
+# --- 2️⃣ Create virtual environment ---
+if [ ! -d "$VENV_DIR" ]; then
+  echo "🐍 Creating virtual environment..."
+  $PYTHON_BIN -m venv $VENV_DIR
 fi
-source $VENV_PATH/bin/activate
 
-echo "---- Installing Python packages ----"
+# Activate venv
+source $VENV_DIR/bin/activate
+
+# --- 3️⃣ Install app dependencies ---
+echo "📚 Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r $APP_DIR/requirements.txt
 
-echo "---- Configuring Flask app ----"
-# Copy .env if not exists
+# --- 4️⃣ Flask environment setup ---
 if [ ! -f "$APP_DIR/.env" ]; then
-  echo "Missing .env file, creating default one..."
+  echo "⚙️ Creating default .env file..."
   cat > $APP_DIR/.env <<EOF
 FLASK_ENV=production
-SECRET_KEY=defaultkey
+SECRET_KEY=default_secret_key
 SQLALCHEMY_DATABASE_URI=sqlite:///todos.db
 EOF
 fi
 
-echo "---- Creating systemd service ----"
-SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
+# --- 5️⃣ Create or update systemd service ---
+echo "🛠️ Setting up systemd service..."
 
 sudo bash -c "cat > $SERVICE_FILE" <<EOF
 [Unit]
@@ -42,23 +50,26 @@ Description=Flask Todos App
 After=network.target
 
 [Service]
-User=ec2-user
+User=ubuntu
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$APP_DIR/.env
-ExecStart=$VENV_PATH/bin/flask run --host=0.0.0.0 --port=5000
+ExecStart=$VENV_DIR/bin/flask run --host=0.0.0.0 --port=5000
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-echo "---- Enabling and starting service ----"
+# --- 6️⃣ Start and enable service ---
+echo "🚦 Restarting Flask service..."
 sudo systemctl daemon-reload
 sudo systemctl enable ${APP_NAME}.service
 sudo systemctl restart ${APP_NAME}.service
 
-echo "---- Configuring Nginx ----"
-sudo bash -c "cat > /etc/nginx/conf.d/${APP_NAME}.conf" <<EOF
+# --- 7️⃣ Configure Nginx as reverse proxy ---
+echo "🌐 Configuring Nginx..."
+
+sudo bash -c "cat > $NGINX_CONF" <<EOF
 server {
     listen 80;
     server_name _;
@@ -68,6 +79,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF
@@ -75,4 +87,13 @@ EOF
 sudo systemctl enable nginx
 sudo systemctl restart nginx
 
-echo "---- Deployment completed successfully ----"
+# --- 8️⃣ Firewall (optional) ---
+if command -v firewall-cmd >/dev/null 2>&1; then
+  echo "🔒 Configuring firewall..."
+  sudo firewall-cmd --permanent --add-service=http || true
+  sudo firewall-cmd --reload || true
+fi
+
+echo "✅ Deployment successful!"
+echo "Your Flask app is now live at: http://$(curl -s ifconfig.me)"
+
